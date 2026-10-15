@@ -5,14 +5,29 @@
   body { font: 14px system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
   input, textarea { width: 100%; box-sizing: border-box; }
   textarea { height: 260px; font: 12px ui-monospace, monospace; }
+  .code { font: 600 22px ui-monospace, monospace; letter-spacing: .1em; }
 </style>
 <h1>PR Feedback</h1>
+<h2>GitHub sign-in</h2>
 <p>
   <label>
-    GitHub token (fine-grained, with <b>Contents: write</b> and <b>Pull requests: write</b> on the target repos)
+    Client ID of a GitHub OAuth App with <b>Enable Device Flow</b> checked (GitHub → Settings → Developer settings → OAuth Apps)
+    <input id="clientId" autocomplete="off" spellcheck="false" />
+  </label>
+</p>
+<p id="signedOut"><button id="signIn">Sign in with GitHub</button> <span id="authStatus"></span></p>
+<p id="device" hidden>
+  Enter <span id="userCode" class="code"></span> at <a id="verify" target="_blank"></a> (the link copies the code).
+  Keep this page open until it finishes.
+</p>
+<p id="signedIn" hidden>Signed in as <b id="login"></b> <button id="signOut">Sign out</button></p>
+<p>
+  <label>
+    Fallback token, used only when not signed in (fine-grained, with <b>Contents: write</b> and <b>Pull requests: write</b> on the target repos)
     <input id="token" type="password" autocomplete="off" />
   </label>
 </p>
+<h2>Rules</h2>
 <p>
   Rules are tried in order against the page URL when you start, and against whatever you type into the target box.
   <code>$1</code>, <code>$2</code>… insert regex capture groups. Targets look like <code>github:owner/repo#123</code>.

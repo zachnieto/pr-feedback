@@ -1,8 +1,12 @@
-import { DEFAULT_RULES, resolveTarget } from "./rules.js";
+import { DEFAULT_RULES, originOf, parseGithubTarget, pushRecent, resolveTarget } from "./rules.js";
+import { formatComment } from "./format.js";
+import { githubApi, issueTitle, searchPulls, targetItem } from "./github.js";
 
 // Screenshots are committed here so they render in private repos (GitHub has no
 // attachment upload API). Never delete the branch: every comment linking it goes blank.
 const ASSETS_BRANCH = "assets/pr-feedback";
+// Device px; a full-width retina crop would otherwise be several MB per point.
+const MAX_IMAGE_WIDTH = 1600;
 
 const posters = { github: postToGithub };
 
@@ -10,7 +14,9 @@ async function getSettings() {
   const { settings } = await chrome.storage.local.get("settings");
   return { token: "", rules: DEFAULT_RULES, ...settings };
 }
-const getSession = async () => (await chrome.storage.local.get("session")).session;
+const tokenOf = (settings) => settings.auth?.token || settings.token;
+const local = async (key) => (await chrome.storage.local.get(key))[key];
+const getSession = () => local("session");
 const setSession = (session) => chrome.storage.local.set({ session });
 
 // ponytail: read-modify-write, so two tabs editing the same instant can clobber each other
@@ -21,9 +27,41 @@ async function editPoints(change) {
   await setSession(session);
 }
 
+const resolveInput = async (input) =>
+  resolveTarget(input ?? "", (await getSettings()).rules, (await local("rememberedTargets")) ?? {});
+
 async function startSession(url) {
   if (await getSession()) return;
-  await setSession({ target: resolveTarget(url ?? "", (await getSettings()).rules), points: [] });
+  const target = await resolveInput(url);
+  await setSession({ target, points: [] });
+  if (target) noteRecent(target).catch(() => {});
+}
+
+// Best effort and not awaited by callers: the title fetch must not delay setting the target.
+async function noteRecent(target) {
+  const gh = parseGithubTarget(target);
+  if (!gh) return;
+  let title = ((await local("recentTargets")) ?? []).find((r) => r.target === target)?.title;
+  const token = tokenOf(await getSettings());
+  if (!title && token) title = await issueTitle(token, gh.repo, gh.number).catch(() => null);
+  const recent = pushRecent(await local("recentTargets"), targetItem(gh.repo, gh.number, title ?? null));
+  await chrome.storage.local.set({ recentTargets: recent });
+}
+
+async function searchTargets({ query = "", repo }) {
+  const token = tokenOf(await getSettings());
+  const recent = (await local("recentTargets")) ?? [];
+  const gh = parseGithubTarget(await resolveInput(query));
+  if (gh) {
+    const title = token ? await issueTitle(token, gh.repo, gh.number).catch(() => null) : null;
+    return { recent, results: [targetItem(gh.repo, gh.number, title)] };
+  }
+  if (!token) {
+    // Opening the picker signed out still shows the recent targets.
+    if (!query.trim()) return { recent, results: [] };
+    throw new Error("Sign in to GitHub in the extension options to search pull requests");
+  }
+  return { recent, results: await searchPulls(token, query.trim(), repo) };
 }
 
 // Also fires for the _execute_action keyboard command.
@@ -51,12 +89,18 @@ const handlers = {
       const i = points.findIndex((p) => p.id === id);
       if (i >= 0) points.splice(i, 1);
     }),
-  setTarget: async ({ input }) => {
-    const target = resolveTarget(input, (await getSettings()).rules);
-    if (target) await setSession({ ...(await getSession()), target });
+  setTarget: async ({ input, remember, origin }) => {
+    const target = await resolveInput(input);
+    if (!target) return null;
+    const session = await getSession();
+    if (session) await setSession({ ...session, target });
+    const key = origin ?? originOf(input);
+    if (remember && key) await chrome.storage.local.set({ rememberedTargets: { ...(await local("rememberedTargets")), [key]: target } });
+    noteRecent(target).catch(() => {});
     return target;
   },
-  resolve: async ({ url }) => resolveTarget(url, (await getSettings()).rules),
+  resolve: ({ url }) => resolveInput(url),
+  searchTargets,
   start: ({ url }) => startSession(url),
   openOptions: () => chrome.runtime.openOptionsPage(),
   cancel: () => chrome.storage.local.remove("session"),
@@ -79,9 +123,12 @@ async function capture(windowId, rect, dpr) {
   const w = Math.min(bmp.width, Math.round((rect.x + rect.width) * dpr + pad)) - x;
   const h = Math.min(bmp.height, Math.round((rect.y + rect.height) * dpr + pad)) - y;
   if (w <= 0 || h <= 0) throw new Error("Selection is outside the visible page");
-  const canvas = new OffscreenCanvas(w, h);
-  canvas.getContext("2d").drawImage(bmp, x, y, w, h, 0, 0, w, h);
-  // Kept at device resolution for sharpness; `width` is the on-screen CSS size it displays at.
+  const scale = Math.min(1, MAX_IMAGE_WIDTH / w);
+  const canvas = new OffscreenCanvas(Math.round(w * scale), Math.max(1, Math.round(h * scale)));
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, x, y, w, h, 0, 0, canvas.width, canvas.height);
+  // Up to device resolution for sharpness; `width` is the on-screen CSS size it displays at.
   return { image: await toBase64(await canvas.convertToBlob({ type: "image/png" })), width: Math.round(w / dpr) };
 }
 
@@ -94,35 +141,26 @@ async function toBase64(blob) {
 
 async function submit() {
   const session = await getSession();
-  const { token } = await getSettings();
+  const token = tokenOf(await getSettings());
   if (!session?.points.length) throw new Error("Nothing to send yet");
   if (!session.target) throw new Error("Choose where to send this feedback first");
-  const sep = session.target.indexOf(":");
-  const [kind, ref] = [session.target.slice(0, sep), session.target.slice(sep + 1)];
+  const kind = session.target.slice(0, session.target.indexOf(":"));
   if (!posters[kind]) throw new Error(`No poster for "${kind}" targets`);
-  const url = await posters[kind](ref, session.points, token);
+  const url = await posters[kind](session.target, session.points, token);
   await chrome.storage.local.remove("session");
   return { url };
 }
 
-async function postToGithub(ref, points, token) {
-  if (!token) throw new Error("Set a GitHub token in the extension options");
-  const [, repo, number] = ref.match(/^(.+)#(\d+)$/) ?? [];
-  if (!repo) throw new Error(`Bad GitHub target "${ref}", expected owner/repo#123`);
+async function postToGithub(target, points, token) {
+  if (!token) throw new Error("Sign in to GitHub in the extension options");
+  const { repo, number } = parseGithubTarget(target) ?? {};
+  if (!repo) throw new Error(`Bad GitHub target "${target}", expected github:owner/repo#123`);
   const gh = (path, opts) => githubApi(token, path, opts);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const files = points.map((p, i) => ({ path: `pr-feedback/${number}/${stamp}-${i + 1}.png`, content: p.image }));
   const sha = await commitFiles(gh, repo, files);
-  const body = [
-    `### UI feedback (${points.length})`,
-    ...points.map((p, i) =>
-      [
-        `**${i + 1}.** ${p.comment}`,
-        `<sub>${p.url}${p.selector ? ` · \`${p.selector}\`` : ""}</sub>`,
-        `<img src="https://github.com/${repo}/blob/${sha}/${files[i].path}?raw=true" alt="point ${i + 1}"${p.width ? ` width="${p.width}"` : ""}>`,
-      ].join("\n\n"),
-    ),
-  ].join("\n\n---\n\n");
+  const images = files.map((f) => `https://github.com/${repo}/blob/${sha}/${f.path}?raw=true`);
+  const body = formatComment(target, points, images);
   return (await gh(`/repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } })).html_url;
 }
 
@@ -148,17 +186,4 @@ async function commitFiles(gh, repo, files) {
   if (parent) await gh(`/repos/${repo}/git/refs/${ref}`, { method: "PATCH", body: { sha: commit.sha } });
   else await gh(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: `refs/${ref}`, sha: commit.sha } });
   return commit.sha;
-}
-
-async function githubApi(token, path, { method = "GET", body } = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-    body: body && JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const { message } = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(`GitHub ${res.status} on ${path}: ${message ?? res.statusText}`), { status: res.status });
-  }
-  return res.json();
 }

@@ -17,30 +17,35 @@
       PRF.place(mark, rect, 2);
       PRF.placeSize(size, rect);
 
+      const n = (PRF.session?.points.length ?? 0) + 1;
+      // The pin this point will get (styled by pins.js), shown while composing.
+      const pin = h("button", { className: "pin", textContent: n, tabIndex: -1, ariaHidden: "true" });
+      Object.assign(pin.style, { left: `${rect.x}px`, top: `${rect.y}px`, pointerEvents: "none" });
+
       const text = h("textarea", { placeholder: "What should change?", ariaLabel: "Comment" });
       const add = h("button", { className: "primary", textContent: "Add point", disabled: true, onclick: () => done(true) });
       text.oninput = () => (add.disabled = !text.value.trim());
-      text.onkeydown = (e) => {
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) done(true);
-        if (e.key === "Escape") done(false);
-      };
-      const options = PRF.contextOptions();
-      const boxes = options.map((o) => h("input", { type: "checkbox", checked: o.checked ?? true }));
+      const checks = h("div", { className: "checks" });
 
       const panel = h(
         "div",
-        { className: "pop composer" },
+        {
+          className: "pop composer",
+          // On the panel, not the textarea, so the shortcuts still work after clicking a checkbox.
+          onkeydown: (e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) done(true);
+            if (e.key === "Escape") done(false);
+          },
+        },
         h(
           "div",
           { className: "composer-head" },
-          h("span", { className: "num", textContent: (PRF.session?.points.length ?? 0) + 1 }),
+          h("span", { className: "num", textContent: n }),
           h("b", { textContent: selector ? "Element" : "Region" }),
           h("span", { className: "mono mute", textContent: PRF.size(rect) }),
         ),
         h("label", { className: "field" }, h("span", { className: "mute small", textContent: "Comment" }), text),
-        ...options.map((o, i) =>
-          h("label", { className: "check" }, boxes[i], o.label, o.hint ? h("span", { className: "mute", textContent: o.hint }) : ""),
-        ),
+        checks,
         h(
           "div",
           { className: "composer-foot" },
@@ -49,16 +54,35 @@
         ),
       );
 
+      // Options may arrive after the panel is up; they are appended without touching the textarea.
+      let options = [];
+      let boxes = [];
+      const optionsReady = Promise.resolve()
+        .then(() => PRF.contextOptions(rect))
+        .then((list) => {
+          options = list ?? [];
+          boxes = options.map((o) => h("input", { type: "checkbox", checked: o.checked ?? true }));
+          checks.replaceChildren(
+            ...options.map((o, i) =>
+              h("label", { className: "check" }, boxes[i], o.label, o.hint ? h("span", { className: "mute ellipsis", textContent: o.hint, title: o.hint }) : ""),
+            ),
+          );
+          if (panel.isConnected) position(panel, rect);
+        })
+        .catch((e) => console.warn("PR Feedback: context options failed", e));
+
       async function done(ok) {
         const comment = text.value.trim();
         if (ok && !comment) return;
         cancelOpen = null;
         mark.remove();
         size.remove();
+        pin.remove();
         panel.remove();
         if (!ok) return resolve(null);
         let context;
         try {
+          await optionsReady;
           context = await PRF.collectContext(options.filter((_, i) => boxes[i].checked).map((o) => o.key));
         } catch (e) {
           console.warn("PR Feedback: collecting context failed", e);
@@ -68,7 +92,7 @@
       cancelOpen?.();
       cancelOpen = () => done(false);
 
-      PRF.root().append(mark, size, panel);
+      PRF.root().append(mark, size, pin, panel);
       position(panel, rect);
       text.focus();
     });
@@ -95,8 +119,10 @@
     .composer-head b { font-weight: 600; }
     .composer-head .mono { font-size: 12px; }
     .composer textarea { height: 84px; }
-    .check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cfcfcf; }
-    .check input { margin: 0; accent-color: #fff; }
+    .composer textarea:focus { border-color: rgba(255,255,255,.14); outline: 2px solid rgba(76,141,255,.55); }
+    .checks { display: contents; }
+    .check { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: #cfcfcf; white-space: nowrap; }
+    .check input { flex: none; margin: 0; accent-color: #fff; }
     .composer-foot { display: flex; align-items: center; justify-content: space-between; padding-top: 2px; }
     .composer-foot > .mute { display: flex; align-items: center; gap: 6px; }
   `);

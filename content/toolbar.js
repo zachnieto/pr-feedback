@@ -54,7 +54,7 @@
     if (!target)
       return h(
         "button",
-        { className: "chip warn", title: "Choose where feedback goes", onclick: pickTarget },
+        { className: `chip warn${PRF.panel === "target" ? " open" : ""}`, title: "Choose where feedback goes", onclick: pickTarget },
         h("span", { className: "warn-dot" }),
         h("span", { textContent: "Choose target" }),
         icon("chevron", 14, 2),
@@ -62,7 +62,7 @@
     const { repo, number } = PRF.targetLabel(target);
     return h(
       "button",
-      { className: "chip", title: interactive ? `${target}\nChange where feedback goes` : target, disabled: !interactive, onclick: pickTarget },
+      { className: `chip${PRF.panel === "target" ? " open" : ""}`, title: interactive ? `${target}\nChange where feedback goes` : target, disabled: !interactive, onclick: pickTarget },
       icon("pr", 16),
       h("span", { textContent: repo }),
       number ? h("span", { className: "mute", textContent: `#${number}` }) : "",
@@ -70,42 +70,43 @@
     );
   }
 
+  const tip = (label, key) => h("span", { className: "tip" }, label, h("span", { className: "kbd", textContent: key }));
+  const toggleMode = (mode) => {
+    PRF.panel = null;
+    PRF.toggleMode(mode);
+  };
+  const togglePoints = () => {
+    if (!PRF.session.points.length) return;
+    PRF.stopMode();
+    PRF.setPanel(PRF.panel === "points" ? null : "points");
+  };
+
   function bar(s) {
     const n = s.points.length;
-    const modeBtn = (mode, iconName, label) =>
+    const modeBtn = (mode, iconName, label, key) =>
       h(
         "button",
-        {
-          className: `ib${PRF.mode === mode ? " on" : ""}`,
-          ariaLabel: label,
-          title: label,
-          onclick: () => {
-            PRF.panel = null;
-            PRF.toggleMode(mode);
-          },
-        },
+        { className: `ib${PRF.mode === mode ? " on" : ""}`, ariaLabel: label, onclick: () => toggleMode(mode) },
         icon(iconName),
+        tip(label, key),
       );
     return [
       dot(true),
       chip(s.target, true),
       sep(),
-      modeBtn("element", "cursor", "Select element"),
-      modeBtn("region", "region", "Select region"),
+      modeBtn("element", "cursor", "Select element", "E"),
+      modeBtn("region", "region", "Select region", "R"),
       h(
         "button",
         {
           className: `ib${n && PRF.panel === "points" ? " on" : ""}`,
           ariaLabel: "Points",
-          title: "Review points",
           disabled: !n,
-          onclick: () => {
-            PRF.stopMode();
-            PRF.setPanel(PRF.panel === "points" ? null : "points");
-          },
+          onclick: togglePoints,
         },
         icon("list"),
         n ? h("span", { className: "badge", textContent: n }) : "",
+        tip("Review points", "L"),
       ),
       sep(),
       h(
@@ -124,6 +125,22 @@
     sep(),
     h("span", { className: "busy" }, h("span", { className: "spin" }, icon("spinner", 16, 2)), "Uploading screenshots"),
   ];
+
+  // Single-key shortcuts, ignored while typing anywhere (page fields included) or with a modifier held.
+  const keys = { __proto__: null, e: () => toggleMode("element"), r: () => toggleMode("region"), l: togglePoints };
+  addEventListener(
+    "keydown",
+    (e) => {
+      const run = keys[e.key?.toLowerCase()];
+      if (!run || !PRF.session || PRF.busy || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.composedPath()[0];
+      if (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      run();
+    },
+    true,
+  );
 
   function pickTarget() {
     PRF.stopMode();
@@ -166,6 +183,11 @@
     .dot.off::after { background: #6b6b6b; box-shadow: none; }
     .chip:disabled { opacity: 1; cursor: default; }
     .chip .mute { display: inline-flex; }
+    .chip.open svg:last-child { transform: rotate(180deg); }
+    .tip { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); display: none; align-items: center;
+      gap: 8px; padding: 6px 8px 6px 10px; border-radius: 8px; background: #1b1b1b; color: #ededed; font-size: 12px;
+      box-shadow: 0 6px 16px rgba(0,0,0,.2); pointer-events: none; }
+    .ib:hover .tip { display: flex; }
     .chip.warn { background: rgba(245,166,35,.14); color: #ffd28a; }
     .warn-dot { width: 7px; height: 7px; border-radius: 4px; background: #f5a623; }
     .busy { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; color: #cfcfcf; white-space: nowrap; }

@@ -31,6 +31,9 @@
           "div",
           { className: "hint" },
           name === "element" ? "Click an element to comment on it" : "Drag to select a region",
+          ...(name === "element"
+            ? [h("span", { className: "mute", textContent: "·" }), h("span", { className: "kbd", textContent: "↑" }), h("span", { className: "kbd", textContent: "↓" }), "to select parent"]
+            : []),
           h("span", { className: "mute", textContent: "·" }),
           h("span", { className: "kbd", textContent: "Esc" }),
           "to cancel",
@@ -56,10 +59,12 @@
     PRF.root().append(box, tag);
     // composedPath reaches into open shadow roots, unlike e.target.
     const target = (e) => e.composedPath()[0];
-    const onMove = (e) => {
-      box.hidden = tag.hidden = fromOverlay(e);
-      if (box.hidden) return;
-      const el = target(e);
+    // chain[0] is the hovered element, each next entry its parent; the last one is highlighted.
+    let chain = [];
+    const current = () => chain.at(-1);
+    const show = (el) => {
+      box.hidden = tag.hidden = !el;
+      if (!el) return;
       const r = el.getBoundingClientRect();
       place(box, r, 2);
       const classes = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
@@ -71,6 +76,41 @@
       const top = r.y >= 32 ? r.y - 30 : r.bottom + 30 < innerHeight ? r.bottom + 6 : Math.max(r.y, 0) + 6;
       Object.assign(tag.style, { left: `${Math.max(r.x, 0)}px`, top: `${top}px` });
     };
+    const walk = (up) => {
+      const el = current();
+      if (!el) return;
+      const parent = el.parentElement ?? el.getRootNode().host;
+      if (up && parent && el !== document.documentElement) chain.push(parent);
+      else if (!up && chain.length > 1) chain.pop();
+      show(current());
+    };
+    const onMove = (e) => {
+      if (fromOverlay(e)) return show(null);
+      const el = target(e);
+      if (el !== chain[0]) chain = [el];
+      show(current());
+    };
+    let wheel = 0;
+    const onWheel = (e) => {
+      if (!e.altKey || !current() || fromOverlay(e)) return;
+      e.preventDefault();
+      // Accumulated so a trackpad's stream of small deltas walks one step at a time.
+      wheel += e.deltaY;
+      if (Math.abs(wheel) < 60) return;
+      walk(wheel < 0);
+      wheel = 0;
+    };
+    const onKey = (e) => {
+      if (!current() || fromOverlay(e) || !["ArrowUp", "ArrowDown", "Enter"].includes(e.key)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === "Enter") return choose(current());
+      walk(e.key === "ArrowUp");
+    };
+    const choose = (el) => {
+      PRF.stopMode();
+      PRF.addPoint(el.getBoundingClientRect(), cssPath(el));
+    };
     const block = (e) => {
       if (fromOverlay(e)) return;
       e.preventDefault();
@@ -80,19 +120,15 @@
       if (fromOverlay(e)) return;
       block(e);
       const el = target(e);
-      PRF.stopMode();
-      PRF.addPoint(el.getBoundingClientRect(), cssPath(el));
+      choose(el === chain[0] ? current() : el);
     };
     const blocked = ["pointerdown", "pointerup", "mousedown", "mouseup", "dblclick", "contextmenu"];
-    window.addEventListener("mousemove", onMove, true);
-    window.addEventListener("click", onClick, true);
-    for (const t of blocked) window.addEventListener(t, block, true);
+    const listeners = [["mousemove", onMove], ["click", onClick], ["wheel", onWheel], ["keydown", onKey], ...blocked.map((t) => [t, block])];
+    for (const [t, fn] of listeners) window.addEventListener(t, fn, { capture: true, passive: false });
     return () => {
       box.remove();
       tag.remove();
-      window.removeEventListener("mousemove", onMove, true);
-      window.removeEventListener("click", onClick, true);
-      for (const t of blocked) window.removeEventListener(t, block, true);
+      for (const [t, fn] of listeners) window.removeEventListener(t, fn, true);
     };
   }
 
@@ -175,8 +211,13 @@
         parts.unshift(`[data-testid="${CSS.escape(testId)}"]`);
         break;
       }
-      const same = el.parentElement ? [...el.parentElement.children].filter((s) => s.tagName === el.tagName) : [];
-      parts.unshift(el.localName + (same.length > 1 ? `:nth-of-type(${same.indexOf(el) + 1})` : ""));
+      if (el === document.body) break;
+      // Readable class names only; hashed CSS-in-JS classes (css-1x2y3z) add noise.
+      const classes = [...el.classList].filter((c) => /^[a-z][\w-]{0,29}$/i.test(c) && !/\d{3}|[-_](?=[a-z]*\d)[a-z\d]{5,}/i.test(c)).slice(0, 2);
+      const sig = el.localName + classes.map((c) => `.${CSS.escape(c)}`).join("");
+      const siblings = el.parentElement ? [...el.parentElement.children] : [];
+      const nth = siblings.filter((s) => s.tagName === el.tagName).indexOf(el) + 1;
+      parts.unshift(sig + (siblings.filter((s) => s.matches(sig)).length > 1 ? `:nth-of-type(${nth})` : ""));
     }
     return parts.join(" > ");
   }
