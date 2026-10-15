@@ -19,7 +19,7 @@
     }
     if (!panel) {
       panel = PRF.root().appendChild(h("div", { className: "pop above points" }));
-      panel.onkeydown = (e) => e.key === "Escape" && PRF.setPanel(null);
+      panel.onkeydown = (e) => { if (e.key === "Escape") PRF.setPanel(null); };
     }
     panel.replaceChildren(
       h(

@@ -55,7 +55,7 @@
     const row = (item, i) =>
       h(
         "button",
-        { className: `target-row${i === active ? " active" : ""}`, onmousemove: () => i !== active && highlight(i), onclick: () => pick(item.target) },
+        { className: `target-row${i === active ? " active" : ""}`, onmousemove: () => { if (i !== active) highlight(i); }, onclick: () => pick(item.target) },
         h("span", { className: "pr-icon" }, icon("pr", 16, 1.9)),
         h(
           "span",
@@ -129,7 +129,7 @@
     pop = PRF.root().appendChild(
       h(
         "div",
-        { className: "pop above target", onkeydown: (e) => e.key === "Escape" && close() },
+        { className: "pop above target", onkeydown: (e) => { if (e.key === "Escape") close(); } },
         h("label", { className: "search" }, icon("search", 15, 2), input),
         notice,
         error,
