@@ -13,29 +13,52 @@ async function getSettings() {
 const getSession = async () => (await chrome.storage.local.get("session")).session;
 const setSession = (session) => chrome.storage.local.set({ session });
 
-// ponytail: read-modify-write keyed by index, so two tabs editing the same instant can clobber each other
+// ponytail: read-modify-write, so two tabs editing the same instant can clobber each other
 async function editPoints(change) {
   const session = await getSession();
+  if (!session) throw new Error("The feedback session has ended");
   change(session.points);
   await setSession(session);
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
+async function startSession(url) {
   if (await getSession()) return;
-  const { rules } = await getSettings();
-  await setSession({ target: resolveTarget(tab.url ?? "", rules), points: [] });
+  await setSession({ target: resolveTarget(url ?? "", (await getSettings()).rules), points: [] });
+}
+
+// Also fires for the _execute_action keyboard command.
+chrome.action.onClicked.addListener(async (tab) => {
+  await startSession(tab.url);
+  // Tabs opened before install have no content scripts yet; the guards in each file make a re-inject a no-op.
+  try {
+    for (const { js, world = "ISOLATED" } of chrome.runtime.getManifest().content_scripts)
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: js, world });
+  } catch (e) {
+    console.warn(`PR Feedback can't run on ${tab.url ?? "this page"}: ${e.message}`);
+  }
 });
 
 const handlers = {
   capture: ({ rect, dpr }, sender) => capture(sender.tab.windowId, rect, dpr),
   addPoint: ({ point }) => editPoints((points) => points.push(point)),
-  updatePoint: ({ index, comment }) => editPoints((points) => (points[index].comment = comment)),
-  removePoint: ({ index }) => editPoints((points) => points.splice(index, 1)),
+  updatePoint: ({ id, comment }) =>
+    editPoints((points) => {
+      const point = points.find((p) => p.id === id);
+      if (point) point.comment = comment;
+    }),
+  removePoint: ({ id }) =>
+    editPoints((points) => {
+      const i = points.findIndex((p) => p.id === id);
+      if (i >= 0) points.splice(i, 1);
+    }),
   setTarget: async ({ input }) => {
     const target = resolveTarget(input, (await getSettings()).rules);
     if (target) await setSession({ ...(await getSession()), target });
     return target;
   },
+  resolve: async ({ url }) => resolveTarget(url, (await getSettings()).rules),
+  start: ({ url }) => startSession(url),
+  openOptions: () => chrome.runtime.openOptionsPage(),
   cancel: () => chrome.storage.local.remove("session"),
   submit,
 };
@@ -79,7 +102,7 @@ async function submit() {
   if (!posters[kind]) throw new Error(`No poster for "${kind}" targets`);
   const url = await posters[kind](ref, session.points, token);
   await chrome.storage.local.remove("session");
-  chrome.tabs.create({ url });
+  return { url };
 }
 
 async function postToGithub(ref, points, token) {

@@ -1,12 +1,31 @@
 {
   "manifest_version": 3,
   "name": "PR Feedback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pin feedback on any page and post it to a GitHub PR.",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage", "unlimitedStorage", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "Start PR feedback" },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+F", "mac": "Alt+Shift+F" } }
+  },
   "options_page": "options.html",
-  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle" }]
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "content/core.js",
+        "content/toolbar.js",
+        "content/pick.js",
+        "content/composer.js",
+        "content/points.js",
+        "content/target.js",
+        "content/pins.js",
+        "content/context.js"
+      ],
+      "run_at": "document_idle"
+    },
+    { "matches": ["<all_urls>"], "js": ["content/main-world.js"], "world": "MAIN", "run_at": "document_start" }
+  ]
 }
