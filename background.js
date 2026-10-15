@@ -58,7 +58,8 @@ async function capture(windowId, rect, dpr) {
   if (w <= 0 || h <= 0) throw new Error("Selection is outside the visible page");
   const canvas = new OffscreenCanvas(w, h);
   canvas.getContext("2d").drawImage(bmp, x, y, w, h, 0, 0, w, h);
-  return toBase64(await canvas.convertToBlob({ type: "image/png" }));
+  // Kept at device resolution for sharpness; `width` is the on-screen CSS size it displays at.
+  return { image: await toBase64(await canvas.convertToBlob({ type: "image/png" })), width: Math.round(w / dpr) };
 }
 
 async function toBase64(blob) {
@@ -95,7 +96,7 @@ async function postToGithub(ref, points, token) {
       [
         `**${i + 1}.** ${p.comment}`,
         `<sub>${p.url}${p.selector ? ` · \`${p.selector}\`` : ""}</sub>`,
-        `![point ${i + 1}](https://github.com/${repo}/blob/${sha}/${files[i].path}?raw=true)`,
+        `<img src="https://github.com/${repo}/blob/${sha}/${files[i].path}?raw=true" alt="point ${i + 1}"${p.width ? ` width="${p.width}"` : ""}>`,
       ].join("\n\n"),
     ),
   ].join("\n\n---\n\n");

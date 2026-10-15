@@ -226,18 +226,18 @@
 
   async function addPoint(rect, selector) {
     const r = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    let image;
+    let image, width;
     host.style.display = "none";
     try {
       await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
-      image = await send({ type: "capture", rect: r, dpr: devicePixelRatio });
+      ({ image, width } = await send({ type: "capture", rect: r, dpr: devicePixelRatio }));
     } catch (err) {
       return alert(err.message);
     } finally {
       host.style.display = "";
     }
     const comment = await askComment(r);
-    if (comment) await send({ type: "addPoint", point: { url: location.href, selector, comment, image } });
+    if (comment) await send({ type: "addPoint", point: { url: location.href, selector, comment, image, width } });
   }
 
   function askComment(r) {
