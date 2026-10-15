@@ -26,17 +26,19 @@ assert.ok(body.includes("\n\n- [ ] **1.** Button is misaligned.\n"));
 assert.ok(body.includes("\n\n- [ ] **2.** Region note --> end <!-- x\n"));
 
 // Everything between an item's first line and the next item is blank or indented, so it renders inside the item.
-const item1 = body.slice(body.indexOf("- [ ] **1.**"), body.indexOf("- [ ] **2.**")).trimEnd().split("\n").slice(1);
+const item1 = body.slice(body.indexOf("- [ ] **1.**"), body.indexOf("\n\n---\n\n- [ ] **2.**")).split("\n").slice(1);
 for (const l of item1) assert.ok(l === "" || l.startsWith("  "), `escapes the list item: ${JSON.stringify(l)}`);
 assert.ok(item1.includes("  - too small"), "multi-line comment stays in the item");
 assert.ok(item1.includes('  <img src="https://github.com/acme/web/blob/abc/1.png?raw=true" alt="point 1" width="120">'));
 assert.ok(item1.includes("  <details><summary>Console errors (2)</summary>"));
 assert.ok(item1.includes("  ````"), "fence longer than any backtick run in the errors");
 assert.ok(item1.includes("  </details>"));
-assert.ok(item1.includes("  <sub>Viewport 1440 × 900 (2x) · Chrome 130 · Component `SaveButton`</sub>"));
-// Page URL can't inject HTML or markdown.
-assert.ok(item1.includes("  <sub>[https://pr-1.preview.example.com/a?x=&#60;b&#62;&#38;y=\\`z\\`)](https://pr-1.preview.example.com/a?x=%3cb%3e&y=%60z%60%29) · `main > button.save`</sub>"));
-assert.ok(body.includes("· Region 300 × 200</sub>"));
+// One meta line per point; the page URL can't inject HTML or markdown.
+assert.ok(item1.includes("  <sub>[https://pr-1.preview.example.com/a?x=&#60;b&#62;&#38;y=\\`z\\`)](https://pr-1.preview.example.com/a?x=%3cb%3e&y=%60z%60%29) · `main > button.save` · 1440 × 900 (2x) · Chrome 130 · `SaveButton`</sub>"));
+// A multi-line comment is split from its meta by a blank line so block markdown in it can't swallow the meta.
+assert.ok(body.includes("```\n\n  <sub>[https://pr-1"));
+// A one-line comment, its meta and its image are one tight paragraph; points are split by dividers.
+assert.ok(body.includes('\n\n---\n\n- [ ] **2.** Region note --> end <!-- x\n  <sub>[https://example.com/](https://example.com/) · Region 300 × 200</sub>\n  <img src="https://github.com/acme/web/blob/abc/2.png?raw=true" alt="point 2" width="300">\n\n<!-- pr-feedback:v1 '));
 
 assert.equal(code("a`b"), "``a`b``");
 assert.equal(code("`x"), "`` `x ``");

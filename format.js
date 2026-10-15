@@ -16,22 +16,20 @@ const linkDest = (url) => String(url).replace(/[ \t\r\n<>()\\`]/g, (c) => `%${c.
 // Continuation lines indented to the list item's content column so they stay inside it.
 const indent = (s) => s.replace(/\n(?=[^\n])/g, "\n  ");
 
-function contextBlocks(c = {}) {
-  const blocks = [];
+function contextFacts(c = {}) {
   const v = c.viewport;
-  const facts = [
-    v && `Viewport ${v.width} × ${v.height}${v.dpr && v.dpr !== 1 ? ` (${v.dpr}x)` : ""}`,
+  return [
+    v && `${v.width} × ${v.height}${v.dpr && v.dpr !== 1 ? ` (${v.dpr}x)` : ""}`,
     c.browser && escText(c.browser),
-    c.component && `Component ${code(c.component)}`,
+    c.component && code(c.component),
   ].filter(Boolean);
-  if (facts.length) blocks.push(`<sub>${facts.join(" · ")}</sub>`);
-  const errors = c.consoleErrors ?? [];
-  if (errors.length) {
-    const text = errors.join("\n").replace(/\r\n?/g, "\n");
-    const f = fence(text, 3);
-    blocks.push(`<details><summary>Console errors (${errors.length})</summary>\n\n${f}\n${text}\n${f}\n\n</details>`);
-  }
-  return blocks;
+}
+
+function errorsBlock(errors = []) {
+  if (!errors.length) return null;
+  const text = errors.join("\n").replace(/\r\n?/g, "\n");
+  const f = fence(text, 3);
+  return `<details><summary>Console errors (${errors.length})</summary>\n\n${f}\n${text}\n${f}\n\n</details>`;
 }
 
 // HTML comments end at "--"; "-" is a JSON escape for "-", so JSON.parse reads the block as is.
@@ -42,13 +40,14 @@ export function formatComment(target, points, images) {
   const items = points.map((p, i) => {
     const r = p.rect ?? {};
     const where = p.selector ? code(p.selector) : `Region ${Math.round(r.width)} × ${Math.round(r.height)}`;
-    const blocks = [
-      `- [ ] **${i + 1}.** ${(p.comment ?? "").replace(/\r\n?/g, "\n").trim()}`,
-      `<sub>[${escText(p.url)}](${linkDest(p.url)}) · ${where}</sub>`,
-      ...contextBlocks(p.context),
-      `<img src="${escHtml(images[i])}" alt="point ${i + 1}"${p.width ? ` width="${p.width}"` : ""}>`,
-    ];
-    return indent(blocks.join("\n\n"));
+    const comment = (p.comment ?? "").replace(/\r\n?/g, "\n").trim();
+    const meta = [`[${escText(p.url)}](${linkDest(p.url)})`, where, ...contextFacts(p.context)].join(" · ");
+    const img = `<img src="${escHtml(images[i])}" alt="point ${i + 1}"${p.width ? ` width="${p.width}"` : ""}>`;
+    // GitHub renders single newlines in comments as line breaks, so a one-line comment, its meta and its image
+    // share one tight paragraph. A multi-line comment may hold block markdown, so it gets a paragraph break.
+    const head = `- [ ] **${i + 1}.** ${comment}${comment.includes("\n") ? "\n" : ""}`;
+    const errors = errorsBlock(p.context?.consoleErrors);
+    return indent([`${head}\n<sub>${meta}</sub>\n${img}`, errors].filter(Boolean).join("\n\n"));
   });
   const data = {
     target,
@@ -62,5 +61,5 @@ export function formatComment(target, points, images) {
       context: p.context ?? null,
     })),
   };
-  return [`### UI feedback (${points.length})`, ...items, `<!-- pr-feedback:v1 ${hideJson(data)} -->`].join("\n\n");
+  return [`### UI feedback (${points.length})`, items.join("\n\n---\n\n"), `<!-- pr-feedback:v1 ${hideJson(data)} -->`].join("\n\n");
 }
