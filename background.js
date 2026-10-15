@@ -13,6 +13,13 @@ async function getSettings() {
 const getSession = async () => (await chrome.storage.local.get("session")).session;
 const setSession = (session) => chrome.storage.local.set({ session });
 
+// ponytail: read-modify-write keyed by index, so two tabs editing the same instant can clobber each other
+async function editPoints(change) {
+  const session = await getSession();
+  change(session.points);
+  await setSession(session);
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (await getSession()) return;
   const { rules } = await getSettings();
@@ -21,12 +28,9 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 const handlers = {
   capture: ({ rect, dpr }, sender) => capture(sender.tab.windowId, rect, dpr),
-  // ponytail: read-modify-write, two tabs adding a point in the same instant can drop one
-  addPoint: async ({ point }) => {
-    const session = await getSession();
-    session.points.push(point);
-    await setSession(session);
-  },
+  addPoint: ({ point }) => editPoints((points) => points.push(point)),
+  updatePoint: ({ index, comment }) => editPoints((points) => (points[index].comment = comment)),
+  removePoint: ({ index }) => editPoints((points) => points.splice(index, 1)),
   setTarget: async ({ input }) => {
     const target = resolveTarget(input, (await getSettings()).rules);
     if (target) await setSession({ ...(await getSession()), target });

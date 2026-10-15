@@ -1,8 +1,9 @@
 // The overlay is built with createElement + adoptedStyleSheets (no innerHTML or
 // <style>) so pages with strict CSP or Trusted Types, like github.com, still render it.
 (() => {
-  let host, root, bar, targetBtn, targetInput, count, sendBtn, elementBtn, regionBtn;
+  let host, root, bar, list, targetBtn, targetInput, countBtn, sendBtn, elementBtn, regionBtn;
   let session = null;
+  let triedPageTarget = false;
   let stopMode = () => {};
 
   const send = (msg) =>
@@ -39,8 +40,40 @@
     targetBtn.textContent = session.target ?? "";
     targetBtn.hidden = !session.target;
     targetInput.hidden = !!session.target;
-    count.textContent = `${session.points.length} point${session.points.length === 1 ? "" : "s"}`;
+    countBtn.textContent = `${session.points.length} point${session.points.length === 1 ? "" : "s"}`;
+    countBtn.disabled = !session.points.length;
     sendBtn.disabled = !session.points.length || !session.target;
+    if (!session.points.length) list.hidden = true;
+    renderList();
+    // A session started elsewhere picks up its target from the first page whose URL matches a rule.
+    if (!session.target && !triedPageTarget) {
+      triedPageTarget = true;
+      send({ type: "setTarget", input: location.href });
+    }
+  }
+
+  function renderList() {
+    if (list.hidden) return;
+    list.replaceChildren(
+      ...session.points.map((p, index) => {
+        const img = h("img", { src: `data:image/png;base64,${p.image}`, onerror: () => img.remove() });
+        const text = h("textarea", {
+          value: p.comment,
+          onchange: () => {
+            if (!text.value.trim()) return (text.value = p.comment);
+            send({ type: "updatePoint", index, comment: text.value.trim() });
+          },
+        });
+        const where = `${p.selector ?? "Region"} · ${new URL(p.url).pathname}`;
+        return h(
+          "div",
+          { className: "item" },
+          img,
+          h("div", { className: "item-body" }, h("div", { className: "meta", textContent: `${index + 1}. ${where}`, title: p.url }), text),
+          h("button", { textContent: "Remove", onclick: () => send({ type: "removePoint", index }) }),
+        );
+      }),
+    );
   }
 
   function mount() {
@@ -54,13 +87,20 @@
 
     targetBtn = h("button", { title: "Change where feedback goes", onclick: editTarget });
     targetInput = h("input", { placeholder: "PR URL or owner/repo#123", onkeydown: onTargetKey });
-    count = h("span", { className: "count" });
+    list = h("div", { className: "list", hidden: true });
+    countBtn = h("button", {
+      title: "Review points",
+      onclick: () => {
+        list.hidden = !list.hidden;
+        renderList();
+      },
+    });
     elementBtn = h("button", { textContent: "Element", onclick: () => toggle("element", pickElement) });
     regionBtn = h("button", { textContent: "Region", onclick: () => toggle("region", pickRegion) });
     sendBtn = h("button", { className: "primary", textContent: "Send", onclick: submit });
     const closeBtn = h("button", { textContent: "✕", title: "Discard feedback", onclick: cancel });
-    bar = h("div", { className: "bar" }, targetBtn, targetInput, count, elementBtn, regionBtn, sendBtn, closeBtn);
-    root.append(bar);
+    bar = h("div", { className: "bar" }, targetBtn, targetInput, countBtn, elementBtn, regionBtn, sendBtn, closeBtn);
+    root.append(list, bar);
     document.documentElement.append(host);
   }
 
@@ -263,7 +303,14 @@
     .bar { right: 16px; bottom: 16px; align-items: center; }
     .panel { width: 300px; flex-direction: column; padding: 8px; }
     .row { display: flex; gap: 6px; justify-content: flex-end; }
-    .count { color: #59636e; padding: 0 4px; }
+    .list { position: fixed; right: 16px; bottom: 64px; width: 420px; max-height: 60vh; overflow: auto;
+      display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #fff; border: 1px solid #d0d7de;
+      border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.18); pointer-events: auto; }
+    .item { display: flex; gap: 8px; align-items: flex-start; }
+    .item img { width: 80px; max-height: 64px; object-fit: contain; border: 1px solid #d0d7de; border-radius: 4px; }
+    .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .item textarea { height: 48px; }
+    .meta { color: #59636e; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     button, input, textarea { font: inherit; color: inherit; border: 1px solid #d0d7de; border-radius: 6px; }
     button { padding: 4px 10px; background: #f6f8fa; cursor: pointer; max-width: 260px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
