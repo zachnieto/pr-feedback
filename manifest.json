@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "PR Feedback",
+  "version": "0.1.0",
+  "description": "Pin feedback on any page and post it to a GitHub PR.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Start PR feedback" },
+  "options_page": "options.html",
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle" }]
+}

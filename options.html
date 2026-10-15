@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>PR Feedback options</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  input, textarea { width: 100%; box-sizing: border-box; }
+  textarea { height: 260px; font: 12px ui-monospace, monospace; }
+</style>
+<h1>PR Feedback</h1>
+<p>
+  <label>
+    GitHub token (fine-grained, with <b>Contents: write</b> and <b>Pull requests: write</b> on the target repos)
+    <input id="token" type="password" autocomplete="off" />
+  </label>
+</p>
+<p>
+  Rules are tried in order against the page URL when you start, and against whatever you type into the target box.
+  <code>$1</code>, <code>$2</code>… insert regex capture groups. Targets look like <code>github:owner/repo#123</code>.
+</p>
+<textarea id="rules" spellcheck="false"></textarea>
+<p><button id="save">Save</button> <span id="status"></span></p>
+<script type="module" src="options.js"></script>
