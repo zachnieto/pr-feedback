@@ -35,31 +35,61 @@ function errorsBlock(errors = []) {
 // HTML comments end at "--"; "-" is a JSON escape for "-", so JSON.parse reads the block as is.
 export const hideJson = (data) => JSON.stringify(data).replace(/--/g, "-\\u002d");
 
-// images[i] is the URL of points[i]'s screenshot.
+// One checklist item. Extra regions live on `captures`; a point without that array is a single region.
+export function shotsOf(point) {
+  return point.captures?.length ? point.captures : [point];
+}
+
+// images[i] is the URL of points[i]'s screenshot, or an array of URLs when the point has several regions.
 export function formatComment(target, points, images) {
+  const urlsOf = (i) => (Array.isArray(images[i]) ? images[i] : [images[i]]);
   const items = points.map((p, i) => {
-    const r = p.rect ?? {};
-    const where = p.selector ? code(p.selector) : `Region ${Math.round(r.width)} × ${Math.round(r.height)}`;
+    const shots = shotsOf(p);
+    const urls = urlsOf(i);
     const comment = (p.comment ?? "").replace(/\r\n?/g, "\n").trim();
-    const meta = [`[${escText(p.url)}](${linkDest(p.url)})`, where, ...contextFacts(p.context)].join(" · ");
-    const img = `<img src="${escHtml(images[i])}" alt="point ${i + 1}"${p.width ? ` width="${p.width}"` : ""}>`;
+    // Context is captured on the page where the comment is written, which is the last region.
+    const blocks = shots.map((shot, j) => {
+      const r = shot.rect ?? {};
+      const where = shot.selector ? code(shot.selector) : `Region ${Math.round(r.width)} × ${Math.round(r.height)}`;
+      const facts = j === shots.length - 1 ? contextFacts(p.context) : [];
+      const meta = [`[${escText(shot.url)}](${linkDest(shot.url)})`, where, ...facts].join(" · ");
+      const alt = shots.length > 1 ? `point ${i + 1} · ${j + 1}` : `point ${i + 1}`;
+      const img = `<img src="${escHtml(urls[j])}" alt="${alt}"${shot.width ? ` width="${shot.width}"` : ""}>`;
+      return `<sub>${meta}</sub>\n${img}`;
+    });
     // GitHub renders single newlines in comments as line breaks, so a one-line comment, its meta and its image
     // share one tight paragraph. A multi-line comment may hold block markdown, so it gets a paragraph break.
+    // Extra regions are their own paragraphs so each shot stays readable inside the same checklist item.
     const head = `- [ ] **${i + 1}.** ${comment}${comment.includes("\n") ? "\n" : ""}`;
     const errors = errorsBlock(p.context?.consoleErrors);
-    return indent([`${head}\n<sub>${meta}</sub>\n${img}`, errors].filter(Boolean).join("\n\n"));
+    const gap = shots.length > 1 ? "\n\n" : "\n";
+    return indent([`${head}\n${blocks.join(gap)}`, errors].filter(Boolean).join("\n\n"));
   });
   const data = {
     target,
-    points: points.map((p, i) => ({
-      n: i + 1,
-      comment: p.comment,
-      url: p.url,
-      selector: p.selector ?? null,
-      rect: p.rect,
-      image: images[i],
-      context: p.context ?? null,
-    })),
+    points: points.map((p, i) => {
+      const shots = shotsOf(p);
+      const urls = urlsOf(i);
+      const first = shots[0];
+      const row = {
+        n: i + 1,
+        comment: p.comment,
+        url: first.url,
+        selector: first.selector ?? null,
+        rect: first.rect,
+        image: urls[0],
+        context: p.context ?? null,
+      };
+      if (shots.length > 1) {
+        row.captures = shots.map((shot, j) => ({
+          url: shot.url,
+          selector: shot.selector ?? null,
+          rect: shot.rect,
+          image: urls[j],
+        }));
+      }
+      return row;
+    }),
   };
   return [`### UI feedback (${points.length})`, items.join("\n\n---\n\n"), `<!-- pr-feedback:v1 ${hideJson(data)} -->`].join("\n\n");
 }

@@ -1,4 +1,5 @@
-// Element and region modes, and turning a picked rect into a point (PRF.addPoint).
+// Element and region modes. A pick joins the draft; the first one opens the comment box
+// unless Group is on, in which case picks keep accumulating until Comment.
 (() => {
   const PRF = window.PRF;
   if (PRF.loaded.has("pick")) return;
@@ -6,13 +7,30 @@
   const { h, place } = PRF;
 
   let stop = null;
+  let hint = null;
+  let capturing = false;
   PRF.mode = null; // "element" | "region" | null
+  PRF.lastPickMode = "element";
 
   const fromOverlay = (e) => e.composedPath().includes(PRF.host);
+  const sep = () => h("span", { className: "mute", textContent: "·" });
+  const kbd = (text) => h("span", { className: "kbd", textContent: text });
+
+  function fillHint(name) {
+    if (!hint || !name) return;
+    const n = PRF.session?.draft?.length ?? 0;
+    const grouping = !!PRF.session?.grouping;
+    const nodes = [name === "element" ? (grouping || n ? "Click an element to add it" : "Click an element to comment on it") : grouping || n ? "Drag to add a region" : "Drag to select a region"];
+    if (name === "element" && !grouping && !n) nodes.push(sep(), kbd("↑"), kbd("↓"), "to select parent");
+    if (grouping || n) nodes.push(sep(), kbd("C"), "to comment");
+    nodes.push(sep(), kbd("Esc"), n ? "to stop" : "to cancel");
+    hint.replaceChildren(...nodes);
+  }
 
   function end() {
     stop?.();
     stop = null;
+    hint = null;
     PRF.mode = null;
   }
   PRF.stopMode = () => {
@@ -25,25 +43,15 @@
     end();
     if (was !== name) {
       PRF.mode = name;
+      PRF.lastPickMode = name;
       const stopPick = (name === "element" ? pickElement : pickRegion)();
-      const hint = PRF.root().appendChild(
-        h(
-          "div",
-          { className: "hint" },
-          name === "element" ? "Click an element to comment on it" : "Drag to select a region",
-          ...(name === "element"
-            ? [h("span", { className: "mute", textContent: "·" }), h("span", { className: "kbd", textContent: "↑" }), h("span", { className: "kbd", textContent: "↓" }), "to select parent"]
-            : []),
-          h("span", { className: "mute", textContent: "·" }),
-          h("span", { className: "kbd", textContent: "Esc" }),
-          "to cancel",
-        ),
-      );
+      hint = PRF.root().appendChild(h("div", { className: "hint" }));
       const onEsc = (e) => e.key === "Escape" && PRF.stopMode();
       window.addEventListener("keydown", onEsc, true);
       stop = () => {
         stopPick();
         hint.remove();
+        hint = null;
         window.removeEventListener("keydown", onEsc, true);
       };
     }
@@ -51,6 +59,7 @@
   };
   PRF.onRender((s) => {
     if (!s) end();
+    else fillHint(PRF.mode);
   });
 
   function pickElement() {
@@ -107,10 +116,7 @@
       if (e.key === "Enter") return choose(current());
       walk(e.key === "ArrowUp");
     };
-    const choose = (el) => {
-      PRF.stopMode();
-      PRF.addPoint(el.getBoundingClientRect(), cssPath(el));
-    };
+    const choose = (el) => el && PRF.captureShot(el.getBoundingClientRect(), cssPath(el));
     const block = (e) => {
       if (fromOverlay(e)) return;
       e.preventDefault();
@@ -160,8 +166,7 @@
       start = null;
       box.hidden = size.hidden = true;
       if (r.width < 5 || r.height < 5) return;
-      PRF.stopMode();
-      PRF.addPoint(r, null);
+      PRF.captureShot(r, null);
     };
     PRF.root().append(layer);
     return () => layer.remove();
@@ -174,7 +179,11 @@
     Object.assign(el.style, { left: `${r.x + r.width}px`, top: `${below + 22 < innerHeight ? below : r.y + r.height - 30}px` });
   };
 
-  PRF.addPoint = async (rect, selector) => {
+  // Stays true through the comment box so a second click can't start another shot underneath it.
+  PRF.captureShot = async (rect, selector) => {
+    if (capturing || PRF.composing) return;
+    capturing = true;
+    const grouping = !!PRF.session?.grouping;
     const r = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     const scroll = { x: scrollX, y: scrollY };
     let shot;
@@ -188,14 +197,62 @@
     } finally {
       PRF.host.style.display = "";
     }
-    if (shot instanceof Error) return PRF.toast(shot.message, { error: true });
-    const res = await PRF.compose({ rect: r, selector });
-    if (!res) return;
-    // randomUUID needs a secure context; plain-http pages fall back to a random string.
-    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const point = { id, url: location.href, selector, rect: r, scroll, comment: res.comment, image: shot.image, width: shot.width };
-    if (res.context !== undefined) point.context = res.context;
-    await PRF.send({ type: "addPoint", point }).catch((e) => PRF.toast(e.message, { error: true }));
+    try {
+      if (shot instanceof Error) return PRF.toast(shot.message, { error: true });
+      const n = await PRF.send({
+        type: "addCapture",
+        capture: { url: location.href, selector, rect: r, scroll, image: shot.image, width: shot.width },
+      });
+      // Group stays in the mode so the next click adds another region. A lone first click still opens the box.
+      if (n === 1 && !grouping) await PRF.commentOnDraft();
+    } catch (e) {
+      PRF.toast(e.message, { error: true });
+    } finally {
+      capturing = false;
+    }
+  };
+
+  PRF.discardDraft = async () => {
+    const n = PRF.session?.draft?.length ?? 0;
+    if (!n) return;
+    if (n > 1 && !confirm(`Discard ${PRF.plural(n, "selection")}?`)) return;
+    await PRF.send({ type: "clearDraft" }).catch((e) => PRF.toast(e.message, { error: true }));
+  };
+
+  PRF.commentOnDraft = async () => {
+    if (PRF.composing) return;
+    PRF.composing = true;
+    const mode = PRF.mode;
+    PRF.stopMode();
+    PRF.render();
+    try {
+      const session = await PRF.reloadSession();
+      const captures = session?.draft?.slice() ?? [];
+      if (!captures.length) return;
+      const res = await PRF.compose({
+        captures,
+        comment: session.draftComment ?? "",
+        onRemove: (index) => PRF.send({ type: "removeCapture", index }),
+      });
+      if (!PRF.session) return;
+      if (res?.more) {
+        await PRF.send({ type: "setDraftComment", comment: res.comment });
+        PRF.toggleMode(mode || PRF.lastPickMode || "element");
+        return;
+      }
+      if (!res) {
+        await PRF.send({ type: "clearDraft" });
+        return;
+      }
+      const msg = { type: "commitDraft", comment: res.comment };
+      if (res.context !== undefined) msg.context = res.context;
+      await PRF.send(msg);
+    } catch (e) {
+      PRF.toast(e.message, { error: true });
+    } finally {
+      PRF.composing = false;
+      PRF.render();
+    }
   };
 
   // Context for a reader, not a guaranteed-unique locator: stops at the nearest id or data-testid.

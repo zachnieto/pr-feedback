@@ -16,7 +16,8 @@ Tabs opened before installing work too: clicking the icon injects the overlay in
 
 - Start a session with the toolbar icon or **⌥⇧F** (Alt+Shift+F; change it at `chrome://extensions/shortcuts`). On a page that matches a rule, a small **Feedback** pill in the bottom-right corner does the same.
 - The target is picked from the page URL by the rules, then by a target you told it to remember for that origin. If nothing matches, the toolbar shows **Choose target**: click it to search open PRs (yours, or the current repo's), or paste a PR URL or `owner/repo#123`. **Remember for** (the page origin) reuses the choice on every page of that origin (handy for `localhost`). The last 5 targets show up as **Recent**.
-- **Element** (cursor icon): hover and click an element. **Region** (corners icon): drag a rectangle. Each one is cropped from a screenshot and gets a comment (⌘↵ to add). Press Esc to back out.
+- **Element** (cursor icon): hover and click an element. **Region** (corners icon): drag a rectangle. The comment box opens on the first selection (⌘↵ to add). Press Esc to back out.
+- **Group** (overlapping squares, or G) keeps each selection instead. Add more elements or regions, then **Comment** (C) writes one note for all of them. Esc leaves select mode without dropping the group, so you can open another page and press E again. From the comment box, **Add another to this point** does the same thing if Group was off. They post as one checklist item, with a shot per region. The numbered outlines are the current group; click a number to drop that region.
 - The list icon opens the points: edit a comment inline, remove one, or clear them all.
 - One session spans every tab and page, so you can mix preview pages and the PR's own images.
 - **Send** commits the screenshots to the `assets/pr-feedback` branch of the target repo and posts a comment linking them (`?raw=true` URLs pinned to the commit, so they render in private repos). A toast links to the posted comment.
@@ -24,7 +25,7 @@ Tabs opened before installing work too: clicking the icon injects the overlay in
 
 ## Comment format
 
-One task-list item per point, so the PR author can tick them off:
+One task-list item per point, so the PR author can tick them off. A point with several regions is still one item: each region gets its own link line and image, in the order selected. The hidden JSON keeps the first region in the flat fields and, when there are more, lists them all as `captures`.
 
 ```markdown
 ### UI feedback (2)

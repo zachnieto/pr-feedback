@@ -1,5 +1,5 @@
 import { DEFAULT_RULES, originOf, parseGithubTarget, pushRecent, resolveTarget } from "./rules.js";
-import { formatComment } from "./format.js";
+import { formatComment, shotsOf } from "./format.js";
 import { githubApi, issueTitle, searchPulls, targetItem } from "./github.js";
 
 // Screenshots are committed here so they render in private repos (GitHub has no
@@ -20,12 +20,14 @@ const getSession = () => local("session");
 const setSession = (session) => chrome.storage.local.set({ session });
 
 // ponytail: read-modify-write, so two tabs editing the same instant can clobber each other
-async function editPoints(change) {
+async function editSession(change) {
   const session = await getSession();
   if (!session) throw new Error("The feedback session has ended");
-  change(session.points);
+  const result = change(session);
   await setSession(session);
+  return result;
 }
+const editPoints = (change) => editSession((session) => change(session.points));
 
 const resolveInput = async (input) =>
   resolveTarget(input ?? "", (await getSettings()).rules, (await local("rememberedTargets")) ?? {});
@@ -33,7 +35,7 @@ const resolveInput = async (input) =>
 async function startSession(url) {
   if (await getSession()) return;
   const target = await resolveInput(url);
-  await setSession({ target, points: [] });
+  await setSession({ target, points: [], draft: [] });
   if (target) noteRecent(target).catch(() => {});
 }
 
@@ -78,7 +80,28 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 const handlers = {
   capture: ({ rect, dpr }, sender) => capture(sender.tab.windowId, rect, dpr),
-  addPoint: ({ point }) => editPoints((points) => points.push(point)),
+  addCapture: ({ capture }) =>
+    editSession((s) => {
+      (s.draft ??= []).push(capture);
+      return s.draft.length;
+    }),
+  removeCapture: ({ index }) => editSession((s) => s.draft?.splice(index, 1)),
+  clearDraft: () =>
+    editSession((s) => {
+      s.draft = [];
+      delete s.draftComment;
+    }),
+  setDraftComment: ({ comment }) => editSession((s) => (s.draftComment = comment)),
+  setGrouping: ({ on }) => editSession((s) => (s.grouping = !!on)),
+  commitDraft: ({ comment, context }) =>
+    editSession((s) => {
+      if (!s.draft?.length) throw new Error("Nothing selected");
+      const point = { id: crypto.randomUUID(), comment, captures: s.draft };
+      if (context !== undefined) point.context = context;
+      s.points.push(point);
+      s.draft = [];
+      delete s.draftComment;
+    }),
   updatePoint: ({ id, comment }) =>
     editPoints((points) => {
       const point = points.find((p) => p.id === id);
@@ -142,6 +165,7 @@ async function toBase64(blob) {
 async function submit() {
   const session = await getSession();
   const token = tokenOf(await getSettings());
+  if (session?.draft?.length) throw new Error("Comment on the current selection first, or discard it");
   if (!session?.points.length) throw new Error("Nothing to send yet");
   if (!session.target) throw new Error("Choose where to send this feedback first");
   const kind = session.target.slice(0, session.target.indexOf(":"));
@@ -157,9 +181,14 @@ async function postToGithub(target, points, token) {
   if (!repo) throw new Error(`Bad GitHub target "${target}", expected github:owner/repo#123`);
   const gh = (path, opts) => githubApi(token, path, opts);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const files = points.map((p, i) => ({ path: `pr-feedback/${number}/${stamp}-${i + 1}.png`, content: p.image }));
+  const files = [];
+  const groups = points.map((p) => {
+    const start = files.length;
+    for (const shot of shotsOf(p)) files.push({ path: `pr-feedback/${number}/${stamp}-${files.length + 1}.png`, content: shot.image });
+    return files.slice(start);
+  });
   const sha = await commitFiles(gh, repo, files);
-  const images = files.map((f) => `https://github.com/${repo}/blob/${sha}/${f.path}?raw=true`);
+  const images = groups.map((group) => group.map((f) => `https://github.com/${repo}/blob/${sha}/${f.path}?raw=true`));
   const body = formatComment(target, points, images);
   return (await gh(`/repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } })).html_url;
 }

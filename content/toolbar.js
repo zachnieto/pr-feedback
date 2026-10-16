@@ -75,6 +75,18 @@
     PRF.panel = null;
     PRF.toggleMode(mode);
   };
+  function toggleGrouping() {
+    if (!PRF.session || PRF.composing) return;
+    const on = !PRF.session.grouping;
+    PRF.session.grouping = on;
+    PRF.render();
+    send({ type: "setGrouping", on }).catch(async (e) => {
+      fail(e);
+      await PRF.reloadSession();
+      PRF.render();
+    });
+    if (on && !PRF.mode) PRF.toggleMode("element");
+  }
   const togglePoints = () => {
     if (!PRF.session.points.length) return;
     PRF.stopMode();
@@ -99,6 +111,17 @@
       h(
         "button",
         {
+          className: `ib${s.grouping ? " on" : ""}`,
+          ariaLabel: "Group selections",
+          onclick: toggleGrouping,
+        },
+        icon("group"),
+        tip("Group selections", "G"),
+      ),
+      ...selectionControls(s),
+      h(
+        "button",
+        {
           className: `ib${n && PRF.panel === "points" ? " on" : ""}`,
           ariaLabel: "Points",
           disabled: !n,
@@ -111,11 +134,30 @@
       sep(),
       h(
         "button",
-        { className: "primary", disabled: !n || !s.target, title: s.target ? "Post to the PR" : "Choose a target first", onclick: submit },
+        {
+          className: "primary",
+          disabled: !n || !s.target || !!s.draft?.length,
+          title: s.draft?.length ? "Comment on the current selection first" : s.target ? "Post to the PR" : "Choose a target first",
+          onclick: submit,
+        },
         "Send",
         icon("up", 14, 2.25),
       ),
       h("button", { className: "ib", ariaLabel: "Discard feedback", title: "Discard feedback", onclick: discard }, icon("x", 16)),
+    ];
+  }
+
+  function selectionControls(s) {
+    const n = s.draft?.length ?? 0;
+    if (!n || PRF.composing) return [];
+    return [
+      h(
+        "button",
+        { className: "chip", title: "Comment on these selections (C)", onclick: () => PRF.commentOnDraft() },
+        "Comment",
+        h("span", { className: "count", textContent: n }),
+      ),
+      h("button", { className: "ib", ariaLabel: "Discard selection", title: "Discard selection", onclick: () => PRF.discardDraft() }, icon("x", 16)),
     ];
   }
 
@@ -127,12 +169,22 @@
   ];
 
   // Single-key shortcuts, ignored while typing anywhere (page fields included) or with a modifier held.
-  const keys = { __proto__: null, e: () => toggleMode("element"), r: () => toggleMode("region"), l: togglePoints };
+  const keys = {
+    __proto__: null,
+    e: () => toggleMode("element"),
+    r: () => toggleMode("region"),
+    g: toggleGrouping,
+    c: () => PRF.session?.draft?.length && PRF.commentOnDraft(),
+    l: togglePoints,
+  };
   addEventListener(
     "keydown",
     (e) => {
-      const run = keys[e.key?.toLowerCase()];
-      if (!run || !PRF.session || PRF.busy || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key?.toLowerCase();
+      const run = keys[key];
+      if (!run || !PRF.session || PRF.busy || PRF.composing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      // C is only ours once something is selected; otherwise the page keeps it.
+      if (key === "c" && !PRF.session.draft?.length) return;
       const el = e.composedPath()[0];
       if (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return;
       e.preventDefault();
@@ -148,6 +200,7 @@
   }
 
   async function submit() {
+    if (PRF.session.draft?.length) return PRF.toast("Comment on the current selection first, or discard it", { error: true });
     const n = PRF.session.points.length;
     const { text } = PRF.targetLabel(PRF.session.target);
     PRF.stopMode();
@@ -171,7 +224,9 @@
 
   function discard() {
     const n = PRF.session.points.length;
-    if (n && !confirm(`Discard ${PRF.plural(n, "point")}?`)) return;
+    const d = PRF.session.draft?.length ?? 0;
+    const what = [n ? PRF.plural(n, "point") : "", d ? PRF.plural(d, "unsaved selection") : ""].filter(Boolean).join(" and ");
+    if (what && !confirm(`Discard ${what}?`)) return;
     PRF.stopMode();
     send({ type: "cancel" }).catch(fail);
   }
@@ -188,6 +243,7 @@
       gap: 8px; padding: 6px 8px 6px 10px; border-radius: 8px; background: #1b1b1b; color: #ededed; font-size: 12px;
       box-shadow: 0 6px 16px rgba(0,0,0,.2); pointer-events: none; }
     .ib:hover .tip { display: flex; }
+    .count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #4c8dff; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
     .chip.warn { background: rgba(245,166,35,.14); color: #ffd28a; }
     .warn-dot { width: 7px; height: 7px; border-radius: 4px; background: #f5a623; }
     .busy { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; color: #cfcfcf; white-space: nowrap; }

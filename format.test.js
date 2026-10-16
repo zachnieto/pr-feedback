@@ -65,3 +65,34 @@ assert.equal(data.points[1].selector, null);
 const tricky = { s: "a---b----c\\--d", n: -1 };
 assert.deepEqual(JSON.parse(hideJson(tricky)), tricky);
 assert.ok(!hideJson(tricky).includes("--"));
+
+// Several regions, one checklist item. Context sits on the last region — that's the page where the note was written.
+const grouped = {
+  comment: "Selected personal, but the connector shows shared",
+  context: { viewport: { width: 800, height: 600, dpr: 1 }, browser: "Chrome 130" },
+  captures: [
+    { url: "https://example.com/setup", selector: "#personal", rect: { x: 1, y: 2, width: 40, height: 20 }, width: 40 },
+    { url: "https://example.com/details", selector: null, rect: { x: 3, y: 4, width: 80, height: 50 }, width: 80 },
+  ],
+};
+const groupedImages = ["https://github.com/acme/web/blob/abc/a.png?raw=true", "https://github.com/acme/web/blob/abc/b.png?raw=true"];
+const groupedBody = formatComment("github:acme/web#7", [grouped], [groupedImages]);
+assert.equal(groupedBody.split("\n")[0], "### UI feedback (1)");
+assert.equal(groupedBody.match(/^- \[ \]/gm).length, 1);
+assert.ok(groupedBody.includes("- [ ] **1.** Selected personal, but the connector shows shared\n"));
+assert.ok(groupedBody.includes("[https://example.com/setup](https://example.com/setup) · `#personal`"));
+assert.ok(groupedBody.includes("[https://example.com/details](https://example.com/details) · Region 80 × 50 · 800 × 600 · Chrome 130"));
+assert.ok(groupedBody.indexOf("example.com/setup") < groupedBody.indexOf("example.com/details"));
+assert.ok(groupedBody.indexOf("example.com/details") < groupedBody.indexOf("800 × 600"));
+assert.equal(groupedBody.match(/<img /g).length, 2);
+assert.ok(groupedBody.includes('alt="point 1 · 1" width="40"'));
+assert.ok(groupedBody.includes('alt="point 1 · 2" width="80"'));
+const groupedItem = groupedBody.slice(groupedBody.indexOf("- [ ] **1.**"), groupedBody.indexOf("\n\n<!-- pr-feedback:v1 ")).split("\n").slice(1);
+for (const l of groupedItem) assert.ok(l === "" || l.startsWith("  "), `escapes the grouped item: ${JSON.stringify(l)}`);
+const groupedData = JSON.parse(groupedBody.match(/^<!-- pr-feedback:v1 (.*) -->$/m)[1]);
+assert.equal(groupedData.points[0].url, "https://example.com/setup");
+assert.equal(groupedData.points[0].image, groupedImages[0]);
+assert.deepEqual(groupedData.points[0].captures, [
+  { url: "https://example.com/setup", selector: "#personal", rect: grouped.captures[0].rect, image: groupedImages[0] },
+  { url: "https://example.com/details", selector: null, rect: grouped.captures[1].rect, image: groupedImages[1] },
+]);

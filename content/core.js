@@ -15,6 +15,8 @@
     session: null,
     // The one open popover above the toolbar: "points", "target" or null.
     panel: null,
+    // True while the comment box for the current selection is open.
+    composing: false,
     mac: /Mac/.test(navigator.platform),
   });
 
@@ -31,6 +33,7 @@
     chevron: ["m6 9 6 6 6-6"],
     cursor: ["M4 4l7 17 2.5-7.5L21 11z"],
     region: ["M3 8V5a2 2 0 0 1 2-2h3", "M16 3h3a2 2 0 0 1 2 2v3", "M21 16v3a2 2 0 0 1-2 2h-3", "M8 21H5a2 2 0 0 1-2-2v-3"],
+    group: ["M4 8h11v11H4z", "M9 5h11v11H9z"],
     list: ["M9 6h12", "M9 12h12", "M9 18h12", "M4 6h.01", "M4 12h.01", "M4 18h.01"],
     up: ["M12 19V5", "m5 12 7-7 7 7"],
     x: ["M18 6 6 18", "m6 6 12 12"],
@@ -65,6 +68,29 @@
       height: `${r.height + 2 * pad}px`,
     });
   PRF.size = (r) => `${Math.round(r.width)} × ${Math.round(r.height)}`;
+  // Hash is ignored so a selection survives an in-page tab that only changes the hash.
+  PRF.pageOf = (url) => {
+    try {
+      const u = new URL(url);
+      return u.origin + u.pathname + u.search;
+    } catch {
+      return String(url ?? "");
+    }
+  };
+  // Document position at capture time, mapped back to the current viewport.
+  PRF.viewportRect = (c) => ({
+    x: c.rect.x + (c.scroll?.x ?? 0) - scrollX,
+    y: c.rect.y + (c.scroll?.y ?? 0) - scrollY,
+    width: c.rect.width,
+    height: c.rect.height,
+  });
+  // A point saved before grouping has its one region on the point itself.
+  PRF.captures = (p) => (p?.captures?.length ? p.captures : p ? [p] : []);
+  PRF.reloadSession = async () => {
+    const { session } = await chrome.storage.local.get("session");
+    PRF.session = session ?? null;
+    return PRF.session;
+  };
   PRF.plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   // "github:Newton-Research-Inc/newton#3481" -> { repo: "newton", number: "3481", text: "newton#3481" }
   PRF.targetLabel = (target) => {

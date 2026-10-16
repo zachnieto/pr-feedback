@@ -42,19 +42,37 @@
 
   const iconBtn = (name, label, onclick) => h("button", { className: "ib sm", ariaLabel: label, title: label, onclick }, icon(name, 15));
 
+  function shotWhere(c) {
+    const sel = c.selector ?? (c.rect ? `Region ${PRF.size(c.rect)}` : "");
+    let path = "";
+    try {
+      path = new URL(c.url).pathname;
+    } catch {
+      path = c.url ?? "";
+    }
+    return `${sel} · ${path}`;
+  }
+
+  function thumb(c) {
+    const img = h("img", { src: `data:image/png;base64,${c.image}`, alt: "" });
+    img.onerror = () => img.remove();
+    return img;
+  }
+
   function item(p, i) {
-    const img = h("img", { src: `data:image/png;base64,${p.image}`, alt: "", onerror: () => img.remove() });
-    const where = `${p.selector ?? `Region ${p.rect ? PRF.size(p.rect) : ""}`} · ${new URL(p.url).pathname}`;
+    const shots = PRF.captures(p);
+    const img = shots.length > 1 ? h("div", { className: "thumbs" }, ...shots.map(thumb)) : h("div", { className: "thumb" }, thumb(shots[0]));
+    const where = shots.length > 1 ? `${shots.length} selections · ${shotWhere(shots[0])}` : shotWhere(shots[0]);
     const isEditing = editing?.id === p.id;
     const tags = PRF.contextTags(p);
     return h(
       "div",
       { className: "item" },
-      h("div", { className: "thumb" }, img),
+      img,
       h(
         "div",
         { className: "item-body" },
-        h("div", { className: "item-meta" }, h("span", { className: "num", textContent: i + 1 }), h("span", { className: "mono mute ellipsis", textContent: where, title: p.url })),
+        h("div", { className: "item-meta" }, h("span", { className: "num", textContent: i + 1 }), h("span", { className: "mono mute ellipsis", textContent: where, title: shots.map((c) => c.url).join("\n") })),
         ...(isEditing ? editor(p) : [h("div", { className: "item-comment", textContent: p.comment })]),
         tags.length ? h("div", { className: "tags" }, ...tags.map((t) => h("span", { className: "tag", textContent: t }))) : "",
       ),
@@ -120,6 +138,8 @@
     .thumb { width: 92px; height: 62px; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden;
       border-radius: 7px; background: #f4f4f1; border: 1px solid rgba(255,255,255,.12); }
     .thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .thumbs { width: 92px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+    .thumbs img { width: 92px; height: 48px; object-fit: cover; border-radius: 6px; background: #f4f4f1; border: 1px solid rgba(255,255,255,.12); }
     .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
     .item-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .item-comment { white-space: pre-wrap; overflow-wrap: anywhere; }
