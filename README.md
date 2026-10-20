@@ -21,6 +21,8 @@ Tabs opened before installing work too: clicking the icon injects the overlay in
 - The list icon opens the points: edit a comment inline, remove one, or clear them all.
 - One session spans every tab and page, so you can mix preview pages and the PR's own images.
 - **Send** commits the screenshots to the `assets/pr-feedback` branch of the target repo and posts a comment linking them (`?raw=true` URLs pinned to the commit, so they render in private repos). A toast links to the posted comment.
+- **Copy** (next to Send) puts the points on the clipboard instead, for Slack, docs or a tracker: plain text, plus HTML with the screenshots inlined for editors that take images (Google Docs, Notion, email). It needs no target or sign-in, and the session stays open so you can still send or discard it.
+- Drag the toolbar or the **Feedback** pill anywhere; the spot is remembered on every page. With the toolbar in the top half, its panels open below it.
 - Screenshots are stored at device resolution up to 1600 px wide (wider crops are scaled down) and display at their on-screen size in the comment.
 
 ## Comment format
@@ -58,7 +60,7 @@ The part of `target` before the first `:` picks the poster in `background.js`. O
 ## Layout
 
 - `background.js`: session storage, targets, screenshots, posting. Also injects the content scripts on icon click (the `main-world.js` entry into the page's MAIN world).
-- `rules.js`: target resolution (rules, canonical targets, remembered origins) and the recent list. `format.js`: the comment markdown. `github.js`: GitHub API, PR search and the device-flow sign-in, shared with `options.js`.
+- `rules.js`: target resolution (rules, canonical targets, remembered origins) and the recent list. `format.js`: the comment markdown and the clipboard copy. `github.js`: GitHub API, PR search and the device-flow sign-in, shared with `options.js`.
 - `content/`: classic scripts loaded in manifest order, sharing one `window.PRF` namespace. `core.js` owns the shadow-root overlay, session state and the render fan-out (`PRF.onRender`); `toolbar.js`, `pick.js`, `composer.js`, `points.js` and `target.js` each own one piece of UI. `pins.js` and `context.js` are hooks, and `main-world.js` runs in the page's own JS world.
 - The overlay uses `createElement` and `adoptedStyleSheets` only, so it renders on pages with strict CSP or Trusted Types.
 

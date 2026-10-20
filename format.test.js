@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { code, formatComment, hideJson } from "./format.js";
+import { code, formatClipboard, formatComment, hideJson } from "./format.js";
 
 const points = [
   {
@@ -96,3 +96,21 @@ assert.deepEqual(groupedData.points[0].captures, [
   { url: "https://example.com/setup", selector: "#personal", rect: grouped.captures[0].rect, image: groupedImages[0] },
   { url: "https://example.com/details", selector: null, rect: grouped.captures[1].rect, image: groupedImages[1] },
 ]);
+
+// Clipboard: plain text for chat, HTML with inline screenshots for rich editors.
+const clip = formatClipboard([{ ...points[1], image: "QUJD" }, { ...grouped, captures: grouped.captures.map((c) => ({ ...c, image: "REVG" })) }]);
+assert.equal(
+  clip.text,
+  [
+    "UI feedback (2)",
+    "1. Region note --> end <!-- x\n   https://example.com/ · Region 300 × 200",
+    "2. Selected personal, but the connector shows shared\n   https://example.com/setup · #personal\n   https://example.com/details · Region 80 × 50 · 800 × 600 · Chrome 130",
+  ].join("\n\n"),
+);
+assert.ok(clip.html.startsWith("<h3>UI feedback (2)</h3><ol><li><p>Region note --&#62; end &#60;!-- x</p>"));
+assert.ok(clip.html.includes('<img src="data:image/png;base64,QUJD" width="300">'));
+assert.equal(clip.html.match(/base64,REVG/g).length, 2);
+assert.ok(clip.html.includes('<a href="https://example.com/setup">https://example.com/setup</a> · <code>#personal</code>'));
+const withErrors = formatClipboard([points[0]]).text;
+assert.ok(withErrors.includes("1. Button is misaligned.\n\n   Also:"));
+assert.ok(withErrors.includes("   Console errors (2):\n     TypeError: x is undefined\n         at foo (app.js:1)"));

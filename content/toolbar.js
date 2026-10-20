@@ -18,7 +18,10 @@
       dock = null;
       return;
     }
-    dock ??= PRF.root().appendChild(h("div", { className: "tb dock" }));
+    if (!dock) {
+      dock = PRF.root().appendChild(h("div", { className: "tb dock" }));
+      PRF.draggable(dock, "dock");
+    }
     dock.replaceChildren(...(PRF.busy ? busyBar(s) : bar(s)));
   });
 
@@ -35,7 +38,8 @@
       }
       return;
     }
-    idle ??= PRF.root().appendChild(
+    if (idle) return;
+    idle = PRF.root().appendChild(
       h(
         "button",
         { className: "tb idle", title: `Start feedback for ${PRF.targetLabel(idleTarget).text}`, onclick: start },
@@ -44,6 +48,7 @@
         h("span", { className: "kbd", textContent: PRF.mac ? "⌥⇧F" : "Alt+Shift+F" }),
       ),
     );
+    PRF.draggable(idle, "idle");
   }
 
   const start = () => send({ type: "start", url: location.href }).catch(fail);
@@ -134,6 +139,12 @@
       sep(),
       h(
         "button",
+        { className: "ib", ariaLabel: "Copy feedback", disabled: !n || !!s.draft?.length, onclick: copy },
+        icon("copy"),
+        h("span", { className: "tip" }, "Copy to clipboard"),
+      ),
+      h(
+        "button",
         {
           className: "primary",
           disabled: !n || !s.target || !!s.draft?.length,
@@ -222,6 +233,19 @@
     }
   }
 
+  // The clipboard write starts inside the click so it keeps the user gesture; its contents arrive later.
+  function copy() {
+    if (PRF.session.draft?.length) return PRF.toast("Comment on the current selection first, or discard it", { error: true });
+    // Browsers only expose the clipboard API on https and localhost pages.
+    if (!navigator.clipboard) return PRF.toast("Copying needs an https or localhost page", { error: true });
+    const n = PRF.session.points.length;
+    const data = send({ type: "clipboard" });
+    const blob = (key, type) => data.then((d) => new Blob([d[key]], { type }));
+    navigator.clipboard
+      .write([new ClipboardItem({ "text/plain": blob("text", "text/plain"), "text/html": blob("html", "text/html") })])
+      .then(() => PRF.toast(`Copied ${PRF.plural(n, "point")} to the clipboard`), fail);
+  }
+
   function discard() {
     const n = PRF.session.points.length;
     const d = PRF.session.draft?.length ?? 0;
@@ -242,6 +266,7 @@
     .tip { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); display: none; align-items: center;
       gap: 8px; padding: 6px 8px 6px 10px; border-radius: 8px; background: #1b1b1b; color: #ededed; font-size: 12px;
       box-shadow: 0 6px 16px rgba(0,0,0,.2); pointer-events: none; }
+    :host([data-flip]) .tip { bottom: auto; top: calc(100% + 10px); }
     .ib:hover .tip { display: flex; }
     .count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #4c8dff; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
     .chip.warn { background: rgba(245,166,35,.14); color: #ffd28a; }
@@ -249,7 +274,12 @@
     .busy { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; color: #cfcfcf; white-space: nowrap; }
     .spin { display: inline-flex; animation: prf-spin .9s linear infinite; }
     @keyframes prf-spin { to { transform: rotate(360deg); } }
-    .idle { position: fixed; right: 16px; bottom: 16px; height: 50px; gap: 8px; padding: 0 14px; color: #ededed; }
+    .idle { position: fixed; right: 16px; bottom: 16px; height: 50px; gap: 8px; padding: 0 14px; color: #ededed;
+      translate: var(--idle-x, 0px) var(--idle-y, 0px); }
+    .dock { translate: var(--dock-x, 0px) var(--dock-y, 0px); }
+    .dock, .idle { touch-action: none; user-select: none; }
+    .dragging, .dragging * { cursor: grabbing !important; }
+    .dragging .tip { display: none !important; }
     .idle:hover { background: #262626; }
     .toast-text b { font-weight: 600; }
     .toast-text a { margin-left: 12px; }

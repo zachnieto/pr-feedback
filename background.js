@@ -1,5 +1,5 @@
 import { DEFAULT_RULES, originOf, parseGithubTarget, pushRecent, resolveTarget } from "./rules.js";
-import { formatComment, shotsOf } from "./format.js";
+import { formatClipboard, formatComment, shotsOf } from "./format.js";
 import { githubApi, issueTitle, searchPulls, targetItem } from "./github.js";
 
 // Screenshots are committed here so they render in private repos (GitHub has no
@@ -128,6 +128,11 @@ const handlers = {
   openOptions: () => chrome.runtime.openOptionsPage(),
   cancel: () => chrome.storage.local.remove("session"),
   submit,
+  clipboard: async () => {
+    const session = await getSession();
+    if (!session?.points.length) throw new Error("Nothing to copy yet");
+    return formatClipboard(session.points);
+  },
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, respond) => {

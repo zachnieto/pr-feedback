@@ -43,6 +43,7 @@
     locate: ["M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0", "M12 2v4", "M12 18v4", "M2 12h4", "M18 12h4"],
     search: ["M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0", "m20 20-3.5-3.5"],
     spinner: ["M21 12a9 9 0 1 1-6.2-8.56"],
+    copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"],
   };
   const SVG = "http://www.w3.org/2000/svg";
   PRF.icon = (name, size = 18, stroke = 1.75) => {
@@ -112,12 +113,74 @@
       // Keys typed in the overlay must not trigger the page's hotkeys.
       for (const t of ["keydown", "keyup", "keypress"]) root.addEventListener(t, (e) => e.stopPropagation());
       document.documentElement.append(host);
+      applyOffsets();
     }
     if (applied !== PRF.styles.length) {
       sheet.replaceSync(PRF.styles.join("\n"));
       applied = PRF.styles.length;
     }
     return root;
+  };
+
+  // How far the user dragged the toolbar ("dock") and the idle launcher ("idle") from their home spots,
+  // as --dock-x/--dock-y and --idle-x/--idle-y on the host. Shared by every page.
+  let offsets = {};
+  function applyOffsets() {
+    if (!host) return;
+    for (const [key, { x, y }] of Object.entries(offsets)) {
+      host.style.setProperty(`--${key}-x`, `${x}px`);
+      host.style.setProperty(`--${key}-y`, `${y}px`);
+    }
+    // Popovers open below the toolbar once it sits in the top half.
+    host.toggleAttribute("data-flip", (offsets.dock?.y ?? 0) < 50 - innerHeight / 2);
+  }
+  chrome.storage.local.get("offsets").then((r) => {
+    offsets = r.offsets ?? {};
+    applyOffsets();
+  });
+  addEventListener("resize", applyOffsets);
+
+  // Drag `el` anywhere on screen; a press that moves under 4px stays a click.
+  // ponytail: a dragged spot can end up off screen after the window shrinks; clamp on resize if that bites
+  PRF.draggable = (el, key) => {
+    el.addEventListener("pointerdown", (down) => {
+      if (down.button !== 0 || down.composedPath()[0].closest?.("input, textarea")) return;
+      const start = offsets[key] ?? { x: 0, y: 0 };
+      const r = el.getBoundingClientRect();
+      let moved = false;
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+      const move = (e) => {
+        const dx = e.clientX - down.clientX;
+        const dy = e.clientY - down.clientY;
+        if (!moved && Math.hypot(dx, dy) < 4) return;
+        if (!moved) el.setPointerCapture(down.pointerId);
+        moved = true;
+        el.classList.add("dragging");
+        offsets[key] = {
+          x: start.x + clamp(dx, 8 - r.left, innerWidth - 8 - r.right),
+          y: start.y + clamp(dy, 8 - r.top, innerHeight - 8 - r.bottom),
+        };
+        applyOffsets();
+      };
+      const eat = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      const up = () => {
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        el.removeEventListener("pointercancel", up);
+        el.classList.remove("dragging");
+        if (!moved) return;
+        // The click that ends a drag must not press the button under the pointer.
+        el.addEventListener("click", eat, true);
+        setTimeout(() => el.removeEventListener("click", eat, true));
+        chrome.storage.local.set({ offsets });
+      };
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
+    });
   };
 
   // Subscribers run in file order on every session change and on PRF.render() for UI-only state.
@@ -196,6 +259,8 @@
       border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.35); pointer-events: auto; }
     .tb, .pop { z-index: 1; }
     .above { left: 50%; bottom: 84px; transform: translateX(-50%); }
+    .above, .hint, .toast.raised { translate: var(--dock-x, 0px) var(--dock-y, 0px); }
+    :host([data-flip]) :is(.above, .hint, .toast.raised) { bottom: auto; top: calc(100% - 14px); }
     .ib { position: relative; width: 40px; height: 40px; border-radius: 10px; color: #cfcfcf; }
     .ib:hover:not(:disabled) { background: rgba(255,255,255,.08); color: #fff; }
     .ib.on { background: rgba(255,255,255,.14); color: #fff; }
