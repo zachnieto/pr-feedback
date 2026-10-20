@@ -233,17 +233,11 @@
     }
   }
 
-  // The clipboard write starts inside the click so it keeps the user gesture; its contents arrive later.
   function copy() {
     if (PRF.session.draft?.length) return PRF.toast("Comment on the current selection first, or discard it", { error: true });
-    // Browsers only expose the clipboard API on https and localhost pages.
-    if (!navigator.clipboard) return PRF.toast("Copying needs an https or localhost page", { error: true });
-    const n = PRF.session.points.length;
     const data = send({ type: "clipboard" });
     const blob = (key, type) => data.then((d) => new Blob([d[key]], { type }));
-    navigator.clipboard
-      .write([new ClipboardItem({ "text/plain": blob("text", "text/plain"), "text/html": blob("html", "text/html") })])
-      .then(() => PRF.toast(`Copied ${PRF.plural(n, "point")} to the clipboard`), fail);
+    PRF.copy({ "text/plain": blob("text", "text/plain"), "text/html": blob("html", "text/html") }, PRF.plural(PRF.session.points.length, "point"));
   }
 
   function discard() {

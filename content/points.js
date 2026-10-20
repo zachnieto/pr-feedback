@@ -1,4 +1,4 @@
-// The points list panel above the toolbar, with inline edit and remove.
+// The points list panel above the toolbar, with inline edit and remove. Clicking a thumbnail copies that screenshot.
 (() => {
   const PRF = window.PRF;
   if (PRF.loaded.has("points")) return;
@@ -54,9 +54,11 @@
   }
 
   function thumb(c) {
-    const img = h("img", { src: `data:image/png;base64,${c.image}`, alt: "" });
+    const src = `data:image/png;base64,${c.image}`;
+    const img = h("img", { src, alt: "" });
     img.onerror = () => img.remove();
-    return img;
+    const copy = () => PRF.copy({ "image/png": fetch(src).then((r) => r.blob()) }, "screenshot");
+    return h("button", { className: "shot", title: "Copy screenshot", ariaLabel: "Copy screenshot", onclick: copy }, img, h("span", { className: "shot-copy" }, icon("copy", 14)));
   }
 
   function item(p, i) {
@@ -138,6 +140,10 @@
     .thumb { width: 92px; height: 62px; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden;
       border-radius: 7px; background: #f4f4f1; border: 1px solid rgba(255,255,255,.12); }
     .thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .shot { position: relative; width: 100%; height: 100%; border-radius: 6px; overflow: hidden; }
+    .shot-copy { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      border-radius: inherit; background: rgba(0,0,0,.55); color: #fff; }
+    .shot:hover .shot-copy { display: flex; }
     .thumbs { width: 92px; flex: none; display: flex; flex-direction: column; gap: 4px; }
     .thumbs img { width: 92px; height: 48px; object-fit: cover; border-radius: 6px; background: #f4f4f1; border: 1px solid rgba(255,255,255,.12); }
     .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }

@@ -217,6 +217,14 @@
     if (area === "local" && changes.session) setSession(changes.session.newValue);
   });
 
+  // `types` maps MIME types to Blobs or promises of them. Call it straight from a click so the write keeps the
+  // user gesture; browsers only expose the clipboard on https and localhost pages.
+  PRF.copy = (types, what) => {
+    const fail = (e) => PRF.toast(e.message, { error: true });
+    if (!navigator.clipboard) return fail(new Error("Copying needs an https or localhost page"));
+    navigator.clipboard.write([new ClipboardItem(types)]).then(() => PRF.toast(`Copied ${what} to the clipboard`), fail);
+  };
+
   let toast, toastTimer;
   // content: string, Node, or an array of them.
   PRF.toast = (content, { error = false } = {}) => {
